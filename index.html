@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rocket Stability Margin Target Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --hi: #e94560; --text: #eee; --muted: #aaa; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 1.5rem; }
+  h1 { text-align: center; margin-bottom: .3rem; font-size: 1.6rem; }
+  .subtitle { text-align: center; color: var(--muted); margin-bottom: 1.5rem; font-size: .9rem; }
+  .container { max-width: 960px; margin: 0 auto; }
+  .card { background: var(--card); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
+  .card h2 { font-size: 1.1rem; margin-bottom: .8rem; color: var(--hi); }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+  label { display: flex; flex-direction: column; gap: .25rem; font-size: .85rem; color: var(--muted); }
+  label span { font-weight: 600; }
+  input, select { background: var(--accent); border: 1px solid #264573; border-radius: 6px; padding: .5rem .7rem; color: var(--text); font-size: .95rem; }
+  input:focus, select:focus { outline: none; border-color: var(--hi); }
+  .derived { background: var(--accent); border-radius: 8px; padding: .7rem 1rem; margin-top: .8rem; display: flex; gap: 2rem; flex-wrap: wrap; font-size: .9rem; }
+  .derived strong { color: var(--hi); }
+  .result-section { margin-bottom: .8rem; }
+  .result-section h3 { font-size: .95rem; color: #53a8b6; margin-bottom: .3rem; }
+  .result-section p, .result-section li { font-size: .88rem; line-height: 1.5; }
+  .result-section ul { padding-left: 1.2rem; }
+  .range-highlight { font-size: 1.3rem; font-weight: 700; color: #5cdb95; }
+  .classification { display: inline-block; padding: .15rem .6rem; border-radius: 4px; font-weight: 600; font-size: .8rem; }
+  .cls-sweet { background: #27ae60; color: #fff; }
+  .cls-good { background: #2ecc71; color: #000; }
+  .cls-marginal { background: #f39c12; color: #000; }
+  .cls-mildover { background: #e67e22; color: #fff; }
+  .cls-over { background: #e74c3c; color: #fff; }
+  .cls-unstable { background: #c0392b; color: #fff; }
+  .warning { background: #5a1a1a; border-left: 3px solid var(--hi); padding: .5rem .8rem; margin: .4rem 0; border-radius: 4px; font-size: .85rem; }
+  .tip { background: #1a3a2a; border-left: 3px solid #5cdb95; padding: .5rem .8rem; margin: .3rem 0; border-radius: 4px; font-size: .85rem; }
+  .chart-wrap { position: relative; width: 100%; margin-top: .5rem; }
+  .chart-wrap.zone { height: 180px; }
+  .chart-wrap.mach { height: 280px; }
+  .diag-verdict { font-size: 1.15rem; font-weight: 700; margin: .4rem 0; }
+  .diag-verdict.red { color: #e94560; }
+  .diag-verdict.yellow { color: #f39c12; }
+  .diag-verdict.green { color: #5cdb95; }
+  .diag-meter { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; }
+  .diag-meter-bar { flex: 1; height: 10px; background: var(--accent); border-radius: 5px; overflow: hidden; }
+  .diag-meter-fill { height: 100%; border-radius: 5px; transition: width .3s; }
+  .diag-meter-label { font-size: .8rem; color: var(--muted); min-width: 120px; }
+  .diag-meter-val { font-size: .85rem; font-weight: 600; min-width: 70px; text-align: right; }
+  .diag-factor { background: var(--accent); border-radius: 6px; padding: .6rem .8rem; margin: .4rem 0; }
+  .diag-factor h4 { font-size: .85rem; color: #53a8b6; margin-bottom: .2rem; }
+  .diag-factor p { font-size: .82rem; line-height: 1.4; }
+  .card.diag { border: 1px solid #264573; }
+  @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Rocket Stability Margin Target Analyzer</h1>
+  <p class="subtitle">Determine the recommended stability margin range for your rocket design</p>
+
+  <div class="card">
+    <h2>Rocket Parameters</h2>
+    <div class="form-grid">
+      <label><span>Body Diameter (in)</span>
+        <input type="number" id="diameter" value="6" min="0.1" step="0.1">
+      </label>
+      <label><span>Total Length (in)</span>
+        <input type="number" id="length" value="117" min="0.1" step="0.1">
+      </label>
+      <label><span>Max Flight Speed (Mach)</span>
+        <input type="range" id="mach" min="0.1" max="4.0" step="0.05" value="2.85">
+        <span id="machVal" style="color:var(--text);font-size:1rem;font-weight:700">Mach 2.85</span>
+      </label>
+      <label><span>Wind Conditions</span>
+        <select id="wind">
+          <option value="0">Calm (0–5 mph)</option>
+          <option value="5">Light (5–10 mph)</option>
+          <option value="10" selected>Moderate (10–15 mph)</option>
+          <option value="15">Breezy (15–20 mph)</option>
+          <option value="20">Windy (20–25 mph)</option>
+        </select>
+      </label>
+    </div>
+    <div class="derived" id="derived"></div>
+  </div>
+
+  <div class="card" id="resultsCard">
+    <h2>Recommendation</h2>
+    <div id="results"></div>
+  </div>
+
+  <div class="card diag">
+    <h2>Launch Stability Diagnostic</h2>
+    <p style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">Enter your actual vehicle data to diagnose post-rail wobble</p>
+    <div class="form-grid">
+      <label><span>Rocket Weight (lbs, loaded)</span>
+        <input type="number" id="weight" value="156" min="0.1" step="0.1">
+      </label>
+      <label><span>Rail Length (ft)</span>
+        <input type="number" id="railLen" value="20" min="0.5" step="0.5">
+      </label>
+      <label><span>SM at Rail Exit — low Mach (cal)</span>
+        <input type="number" id="actualSM" value="2.19" min="0" step="0.1">
+        <span style="font-size:.75rem;color:var(--muted)">Use OpenRocket SM at lowest reported Mach (~0.1), full propellant load. This is the SM during the rail phase and the first ~100 ft of flight — the value used for wobble diagnosis.</span>
+      </label>
+      <label><span>SM at Peak Speed (cal) — flight envelope check</span>
+        <input type="number" id="smHighMach" value="" min="0" step="0.1" placeholder="optional">
+        <span style="font-size:.75rem;color:var(--muted)">Optional. OpenRocket SM at highest reported Mach. This reflects both CP shift from aero and CG shift from propellant burn at that flight point. Not used for wobble diagnosis — used separately to flag if SM drops dangerously at speed.</span>
+      </label>
+      <label><span>Wobble Onset Distance (ft past rail)</span>
+        <input type="number" id="wobbleDist" value="50" min="0" step="5">
+        <span style="font-size:.75rem;color:var(--muted)">Approximate distance after leaving rail where wobble was first observed. 0 = at rail exit.</span>
+      </label>
+      <label><span>Wobble Character</span>
+        <select id="wobbleChar">
+          <option value="none">No wobble observed</option>
+          <option value="damped" selected>Damped (1–3 oscillations, self-corrected)</option>
+          <option value="sustained">Sustained oscillation</option>
+          <option value="divergent">Divergent (got worse)</option>
+        </select>
+      </label>
+      <label><span>Thrust Source</span>
+        <select id="thrustMode">
+          <option value="manual">Manual Entry (lbf)</option>
+          <option value="csv">Upload Load Cell CSV</option>
+        </select>
+      </label>
+    </div>
+    <div id="thrustManualWrap" style="margin-top:.6rem">
+      <label><span>Manual Thrust Estimate (lbf) — used as constant during rail phase</span>
+        <input type="number" id="thrust" value="500" min="0.1" step="0.1">
+      </label>
+    </div>
+    <div id="thrustCsvWrap" style="margin-top:.6rem;display:none">
+      <label><span>Load Cell CSV (Graphtec DAQ export or similar)</span>
+        <input type="file" id="thrustCsv" accept=".csv,.txt">
+      </label>
+      <p style="font-size:.78rem;color:var(--muted);margin-top:.3rem">
+        Accepts Graphtec GL260 CSV exports directly. Expects columns for row#, date/time, ms, then 4 load cell channels (lbf). Load cell values can be negative (compression) — absolute values are summed. The tool auto-detects the header, reconstructs elapsed time from the ms column, identifies the burn event, and integrates thrust through the rail phase.
+      </p>
+      <div id="csvStatus" style="margin-top:.4rem"></div>
+      <div class="chart-wrap" style="height:200px;display:none" id="thrustChartWrap"><canvas id="thrustChart"></canvas></div>
+    </div>
+    <div id="diagResults" style="margin-top:1rem"></div>
+  </div>
+
+  <div class="card">
+    <h2>Stability Zone Chart</h2>
+    <div class="chart-wrap zone"><canvas id="zoneChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Recommended Minimum SM vs Mach Number</h2>
+    <div class="chart-wrap mach"><canvas id="machChart"></canvas></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// --- Analysis Engine ---
+function windLabel(mph) {
+  if (mph <= 5) return 'Calm (0–5 mph)';
+  if (mph <= 10) return 'Light (5–10 mph)';
+  if (mph <= 15) return 'Moderate (10–15 mph)';
+  if (mph <= 20) return 'Breezy (15–20 mph)';
+  return 'Windy (20–25 mph)';
+}
+
+function analyze(dia, len, mach, windMph) {
+  const fr = len / dia;
+  let frClass, frLabel;
+  if (fr < 8) { frClass = 'stubby'; frLabel = 'Short / Stubby'; }
+  else if (fr > 20) { frClass = 'slender'; frLabel = 'Long / Slender'; }
+  else { frClass = 'typical'; frLabel = 'Typical'; }
+
+  // Base recommended range (subsonic)
+  let lo = 1.0, hi = 2.0;
+
+  // Speed adjustment
+  if (mach > 1.0) {
+    lo = Math.max(lo, 2.0);
+    hi = Math.max(hi, 2.5);
+    // scale further for high mach
+    if (mach > 2.0) { lo += 0.3; hi += 0.3; }
+    if (mach > 3.0) { lo += 0.2; hi += 0.2; }
+  } else if (mach > 0.8) {
+    // transonic buffer
+    lo = Math.max(lo, 1.5);
+    hi = Math.max(hi, 2.2);
+  }
+
+  // Fineness ratio adjustment
+  if (frClass === 'slender') {
+    hi += 0.5;
+  } else if (frClass === 'stubby') {
+    hi = Math.min(hi, 2.0);
+    lo = Math.min(lo, hi - 0.5);
+  }
+
+  // Wind adjustment — linear scale based on mph
+  // 0 mph: +0.2 hi (calm bonus), 10 mph: neutral, 20+ mph: -0.3 hi / -0.15 lo
+  const windFactor = (windMph - 10) / 10; // -1 at 0 mph, 0 at 10, +1 at 20
+  hi -= windFactor * 0.25;
+  lo -= windFactor * 0.1;
+
+  // Clamp
+  lo = Math.max(0.85, Math.round(lo * 10) / 10);
+  hi = Math.max(lo + 0.3, Math.round(hi * 10) / 10);
+
+  // Classification of midpoint
+  const mid = (lo + hi) / 2;
+  let cls, clsLabel, clsCss;
+  if (mid < 0.85) { cls = 'unstable'; clsLabel = 'Unstable'; clsCss = 'cls-unstable'; }
+  else if (mid < 1.0) { cls = 'marginal'; clsLabel = 'Marginal'; clsCss = 'cls-marginal'; }
+  else if (mid <= 2.0) { cls = 'sweet'; clsLabel = 'Subsonic Sweet Spot'; clsCss = 'cls-sweet'; }
+  else if (mid <= 2.5) { cls = 'good'; clsLabel = 'Good Working Range'; clsCss = 'cls-good'; }
+  else if (mid <= 3.0) { cls = 'mildover'; clsLabel = 'Mildly Overstable'; clsCss = 'cls-mildover'; }
+  else { cls = 'over'; clsLabel = 'Overstable'; clsCss = 'cls-over'; }
+
+  // Rail exit velocity recommendation (ft/s)
+  let railV = 50;
+  if (mid > 2.5) railV = 60;
+  if (mid > 3.0) railV = 70;
+  railV += Math.round(windMph * 0.75); // scale with wind mph
+
+  // Percentage of body length metric
+  const smInches = mid * dia;
+  const pctLen = (smInches / len) * 100;
+
+  return { fr, frClass, frLabel, lo, hi, mid, cls, clsLabel, clsCss, railV, pctLen, dia, len, mach, windMph };
+}
+
+function getMinSMForMach(m, fr, windMph) {
+  let lo = 1.0;
+  if (m > 1.0) { lo = 2.0; if (m > 2.0) lo += 0.3; if (m > 3.0) lo += 0.2; }
+  else if (m > 0.8) lo = 1.5;
+  if (fr > 20) { /* no downward shift */ }
+  else if (fr < 8) lo = Math.min(lo, 1.5);
+  const wf = (windMph - 10) / 10;
+  lo -= wf * 0.1;
+  return Math.max(0.85, Math.round(lo * 100) / 100);
+}
+
+// --- Rendering ---
+function renderResults(r) {
+  const warnings = [];
+  const tips = [];
+  if (r.mach > 1.0) warnings.push('Supersonic flight detected — ensure SM stays above 2.0 cal through the entire flight envelope.');
+  if (r.mach > 0.8 && r.mach <= 1.0) warnings.push('Transonic regime — CP can shift unpredictably. Add margin.');
+  if (r.frClass === 'stubby') warnings.push('Low fineness ratio (' + r.fr.toFixed(1) + ') — overstable effects (weathercocking) appear at lower SM values.');
+  if (r.windMph >= 20) warnings.push('High-wind launch (' + r.windMph + '–' + (r.windMph+5) + ' mph) — lower SM recommended to reduce weathercocking tendency.');
+  else if (r.windMph >= 15) warnings.push('Breezy conditions (15–20 mph) — consider favoring the lower end of the SM range.');
+
+  tips.push('Use a rail long enough to reach ' + r.railV + '+ ft/s exit velocity before leaving the guide.');
+  if (r.mid > 2.5) tips.push('High SM rockets benefit from high-thrust motors to quickly reach stable velocity.');
+  if (r.frClass === 'slender') tips.push('Slender rockets (FR ' + r.fr.toFixed(1) + ') can tolerate higher SM without severe weathercocking.');
+  tips.push('In OpenRocket, check SM at multiple flight points — SM shifts with speed (especially near Mach 1).');
+  tips.push('SM in OpenRocket is reported at launch-pad conditions. Verify the supersonic SM separately using the Barrowman method toggle if available.');
+
+  let html = '';
+  html += '<div class="result-section"><h3>Recommended Stability Margin</h3>';
+  html += '<p class="range-highlight">' + r.lo.toFixed(1) + ' – ' + r.hi.toFixed(1) + ' calibers</p>';
+  html += '<p><span class="classification ' + r.clsCss + '">' + r.clsLabel + '</span></p>';
+  if (r.mach > 1.0 && r.lo >= 2.0) {
+    html += '<div class="warning" style="margin-top:.4rem">Supersonic vehicles require SM \u2265 2.0 cal for flight stability, but this level of SM increases weathercocking risk at low speed off the rail. This is an inherent trade-off — do not reduce SM below the supersonic minimum. Instead, manage the low-speed phase by ensuring high rail exit velocity (longer rail, higher initial thrust) and favorable wind conditions.</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="result-section"><h3>Geometry</h3>';
+  html += '<p>Fineness Ratio: <strong>' + r.fr.toFixed(1) + '</strong> (' + r.frLabel + ')</p>';
+  html += '<p>Target SM ≈ <strong>' + (r.mid * r.dia).toFixed(1) + ' in</strong> (CG-to-CP distance) = <strong>' + r.pctLen.toFixed(1) + '%</strong> of body length</p></div>';
+
+  html += '<div class="result-section"><h3>Minimum Rail Exit Velocity</h3>';
+  html += '<p><strong>' + r.railV + ' ft/s</strong></p></div>';
+
+  if (warnings.length) {
+    html += '<div class="result-section"><h3>Warnings</h3>';
+    warnings.forEach(w => html += '<div class="warning">' + w + '</div>');
+    html += '</div>';
+  }
+
+  html += '<div class="result-section"><h3>Practical Tips</h3>';
+  tips.forEach(t => html += '<div class="tip">' + t + '</div>');
+  html += '</div>';
+
+  $('results').innerHTML = html;
+}
+
+function renderDerived(r) {
+  $('derived').innerHTML =
+    '<div>Fineness Ratio: <strong>' + r.fr.toFixed(1) + '</strong> (' + r.frLabel + ')</div>' +
+    '<div>Speed: <strong>Mach ' + r.mach.toFixed(2) + '</strong></div>' +
+    '<div>Wind: <strong>' + windLabel(r.windMph) + '</strong></div>';
+}
+
+// --- Charts ---
+let zoneChartInst, machChartInst;
+
+const zoneColors = ['#c0392b','#e67e22','#27ae60','#2ecc71','#f39c12','#e74c3c','#8e44ad'];
+const zoneLabels = ['Unstable (<0.85)','Marginal (0.85–1.0)','Sweet Spot (1.0–2.0)','Good (2.0–2.5)','Mildly Over (2.5–3.0)','Overstable (3.0–5.0)','Very Over (>5.0)'];
+const zoneRanges = [[0,0.85],[0.85,1.0],[1.0,2.0],[2.0,2.5],[2.5,3.0],[3.0,5.0],[5.0,6.0]];
+
+function renderZoneChart(r) {
+  const ctx = $('zoneChart').getContext('2d');
+  if (zoneChartInst) zoneChartInst.destroy();
+
+  const datasets = zoneRanges.map((range, i) => ({
+    label: zoneLabels[i],
+    data: [range],
+    backgroundColor: zoneColors[i] + '99',
+    borderColor: zoneColors[i],
+    borderWidth: 1,
+    borderSkipped: false,
+    barPercentage: 0.6,
+  }));
+
+  // Recommended range overlay
+  datasets.push({
+    label: 'Your Target: ' + r.lo.toFixed(1) + '–' + r.hi.toFixed(1) + ' cal',
+    data: [[r.lo, r.hi]],
+    backgroundColor: '#5cdb9588',
+    borderColor: '#5cdb95',
+    borderWidth: 3,
+    barPercentage: 0.9,
+    borderSkipped: false,
+  });
+
+  zoneChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: ['SM (cal)'], datasets },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, labels: { color: '#ccc', font: { size: 11 }, boxWidth: 14 } },
+        tooltip: {
+          callbacks: {
+            label: c => c.dataset.label + ': ' + c.raw[0] + '–' + c.raw[1] + ' cal'
+          }
+        }
+      },
+      scales: {
+        x: { min: 0, max: 6, title: { display: true, text: 'Stability Margin (calibers)', color: '#aaa' }, ticks: { color: '#aaa' }, grid: { color: '#333' } },
+        y: { display: false }
+      }
+    }
+  });
+}
+
+function renderMachChart(r) {
+  const ctx = $('machChart').getContext('2d');
+  if (machChartInst) machChartInst.destroy();
+
+  const machs = [];
+  const mins = [];
+  for (let m = 0.1; m <= 4.0; m += 0.05) {
+    machs.push(m.toFixed(2));
+    mins.push(getMinSMForMach(m, r.fr, r.windMph));
+  }
+
+  machChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: machs,
+      datasets: [{
+        label: 'Min Recommended SM (cal)',
+        data: mins,
+        borderColor: '#e94560',
+        backgroundColor: '#e9456033',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      }, {
+        label: 'Your Mach',
+        data: machs.map(() => null),
+        pointRadius: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#ccc', font: { size: 11 } } },
+        annotation: undefined,
+        tooltip: {
+          callbacks: {
+            label: c => c.dataset.label + ': ' + (c.raw !== null ? c.raw.toFixed(2) + ' cal' : '')
+          }
+        }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mach Number', color: '#aaa' }, ticks: { color: '#aaa', maxTicksLimit: 15 }, grid: { color: '#333' } },
+        y: { min: 0, max: 3.5, title: { display: true, text: 'Min SM (cal)', color: '#aaa' }, ticks: { color: '#aaa' }, grid: { color: '#333' } }
+      }
+    },
+    plugins: [{
+      id: 'machLine',
+      afterDraw(chart) {
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.y;
+        const idx = machs.findIndex(v => parseFloat(v) >= r.mach);
+        if (idx < 0) return;
+        const x = xScale.getPixelForValue(idx);
+        const ctx2 = chart.ctx;
+        ctx2.save();
+        ctx2.strokeStyle = '#5cdb95';
+        ctx2.lineWidth = 2;
+        ctx2.setLineDash([6, 4]);
+        ctx2.beginPath();
+        ctx2.moveTo(x, yScale.top);
+        ctx2.lineTo(x, yScale.bottom);
+        ctx2.stroke();
+        ctx2.fillStyle = '#5cdb95';
+        ctx2.font = 'bold 12px sans-serif';
+        ctx2.fillText('Mach ' + r.mach.toFixed(2), x + 4, yScale.top + 14);
+        ctx2.restore();
+      }
+    }]
+  });
+}
+
+// --- Thrust CSV State ---
+let thrustCurve = null; // [{t, f}] array after parsing, t in sec, f in lbf total
+let thrustChartInst = null;
+
+function parseThrustCsv(text) {
+  const lines = text.trim().split(/\r?\n/);
+
+  // --- Detect Graphtec format ---
+  // Look for the "Data" marker line, then the two header rows, then data
+  let dataStartIdx = -1;
+  let samplingMs = 100; // default
+
+  for (let i = 0; i < Math.min(lines.length, 40); i++) {
+    const line = lines[i];
+    // Try to extract sampling interval
+    if (/^Sampling interval/i.test(line)) {
+      const m = line.match(/(\d+)\s*ms/i);
+      if (m) samplingMs = parseInt(m[1]);
+    }
+    // "Data" line marks start of data section; actual rows start 3 lines later
+    if (/^Data\b/i.test(line.trim())) {
+      dataStartIdx = i + 3; // skip "Data", column name row, unit row
+      break;
+    }
+  }
+
+  // If no Graphtec header found, try to find the first line that starts with "1," or a number
+  if (dataStartIdx < 0) {
+    for (let i = 0; i < Math.min(lines.length, 40); i++) {
+      if (/^\d+,/.test(lines[i].trim())) { dataStartIdx = i; break; }
+    }
+  }
+  if (dataStartIdx < 0) return null;
+
+  const data = [];
+  let prevMs = -1;
+  let secondCounter = 0;
+
+  for (let i = dataStartIdx; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    if (cols.length < 7) continue;
+
+    // Graphtec format: NO., DateTime, ms, CH1, CH2, CH3, CH4, ...
+    const msRaw = parseInt(cols[2]);
+    if (isNaN(msRaw)) continue;
+
+    const ch1 = parseFloat(cols[3]);
+    const ch2 = parseFloat(cols[4]);
+    const ch3 = parseFloat(cols[5]);
+    const ch4 = parseFloat(cols[6]);
+    if ([ch1, ch2, ch3, ch4].some(isNaN)) continue;
+
+    // Reconstruct elapsed time — ms column resets every second (0,100,...,900,0,...)
+    if (msRaw < prevMs) secondCounter++;
+    prevMs = msRaw;
+    const t = secondCounter + msRaw / 1000; // elapsed time in seconds
+
+    // Sum absolute values (load cells read negative in compression)
+    const f = Math.abs(ch1) + Math.abs(ch2) + Math.abs(ch3) + Math.abs(ch4);
+
+    data.push({ t, f });
+  }
+
+  if (data.length < 2) return null;
+
+  // --- Detect burn event and zero-offset ---
+  // Use first 2 seconds as tare baseline (pre-fire noise floor)
+  const tareEnd = Math.min(20, Math.floor(data.length * 0.02));
+  let tareSum = 0;
+  for (let i = 0; i < tareEnd; i++) tareSum += data[i].f;
+  const tare = tareSum / tareEnd;
+
+  // Subtract tare and clamp to zero
+  for (const pt of data) {
+    pt.f = Math.max(pt.f - tare, 0);
+  }
+
+  // Find max thrust to set thresholds
+  const maxThrust = Math.max(...data.map(p => p.f));
+  const startThreshold = maxThrust * 0.03; // 3% of peak to find ignition
+  const endThreshold = maxThrust * 0.02;   // 2% of peak for tail-off
+
+  // Find burn start: require N consecutive samples above threshold
+  // to ignore transient noise spikes before ignition
+  const sustainCount = 5; // 5 consecutive samples = 500ms sustained
+  let burnStart = 0;
+  for (let i = 0; i < data.length - sustainCount; i++) {
+    let sustained = true;
+    for (let j = 0; j < sustainCount; j++) {
+      if (data[i + j].f < startThreshold) { sustained = false; break; }
+    }
+    if (sustained) { burnStart = i; break; }
+  }
+
+  // Find burn end: last point in a sustained run above threshold
+  // Walk backward, find first sustained run
+  let burnEnd = data.length - 1;
+  for (let i = data.length - 1; i >= sustainCount; i--) {
+    let sustained = true;
+    for (let j = 0; j < sustainCount; j++) {
+      if (data[i - j].f < endThreshold) { sustained = false; break; }
+    }
+    if (sustained) { burnEnd = i; break; }
+  }
+
+  // Add small padding: 0.5s before ignition, 2s after burnout
+  const padSamples = Math.round(1000 / samplingMs); // samples per second
+  const padBefore = Math.max(0, burnStart - Math.round(padSamples * 0.5));
+  const padAfter = Math.min(data.length, burnEnd + padSamples * 2);
+
+  // Trim to burn region
+  const trimmed = data.slice(padBefore, padAfter);
+
+  // Re-zero time so t=0 is burn start
+  const t0 = data[burnStart].t;
+  for (const pt of trimmed) pt.t -= t0;
+
+  return trimmed;
+}
+
+function integrateRailExit(curve, weightLbs, railLenFt) {
+  // Numerically integrate thrust curve to find velocity and distance at each timestep
+  // Returns { railExitV, railExitTime, peakThrust, avgThrustOnRail }
+  const mass = weightLbs / 32.174; // slugs
+  const W = weightLbs; // weight in lbf
+  let v = 0, dist = 0;
+  let peakThrust = 0;
+  let thrustSum = 0, thrustSamples = 0;
+
+  for (let i = 1; i < curve.length; i++) {
+    const dt = curve[i].t - curve[i - 1].t;
+    if (dt <= 0) continue;
+    const fAvg = (curve[i].f + curve[i - 1].f) / 2; // trapezoidal
+    peakThrust = Math.max(peakThrust, curve[i].f);
+    const netF = Math.max(fAvg - W, 0); // can't accelerate backward on rail
+    const a = netF / mass;
+    v += a * dt;
+    dist += v * dt;
+    thrustSum += fAvg;
+    thrustSamples++;
+    if (dist >= railLenFt) {
+      return {
+        railExitV: v,
+        railExitTime: curve[i].t,
+        peakThrust,
+        avgThrustOnRail: thrustSamples > 0 ? thrustSum / thrustSamples : fAvg
+      };
+    }
+  }
+  // never reached rail length — return final values
+  return {
+    railExitV: v,
+    railExitTime: curve[curve.length - 1].t,
+    peakThrust,
+    avgThrustOnRail: thrustSamples > 0 ? thrustSum / thrustSamples : 0
+  };
+}
+
+function renderThrustChart(curve, railExitTime) {
+  const wrap = $('thrustChartWrap');
+  wrap.style.display = 'block';
+  const ctx = $('thrustChart').getContext('2d');
+  if (thrustChartInst) thrustChartInst.destroy();
+
+  // Only show up to 2x rail exit time or full curve, whichever is shorter
+  const tMax = Math.min(railExitTime * 3, curve[curve.length - 1].t);
+  const filtered = curve.filter(p => p.t <= tMax);
+
+  thrustChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: filtered.map(p => p.t.toFixed(3)),
+      datasets: [{
+        label: 'Total Thrust (lbf)',
+        data: filtered.map(p => p.f),
+        borderColor: '#e94560',
+        backgroundColor: '#e9456022',
+        fill: true,
+        tension: 0.1,
+        pointRadius: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#ccc', font: { size: 11 } } } },
+      scales: {
+        x: { title: { display: true, text: 'Time (s)', color: '#aaa' }, ticks: { color: '#aaa', maxTicksLimit: 12 }, grid: { color: '#333' } },
+        y: { title: { display: true, text: 'Thrust (lbf)', color: '#aaa' }, ticks: { color: '#aaa' }, grid: { color: '#333' }, beginAtZero: true }
+      }
+    },
+    plugins: [{
+      id: 'railExitLine',
+      afterDraw(chart) {
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.y;
+        const idx = filtered.findIndex(p => p.t >= railExitTime);
+        if (idx < 0) return;
+        const x = xScale.getPixelForValue(idx);
+        const ctx2 = chart.ctx;
+        ctx2.save();
+        ctx2.strokeStyle = '#5cdb95';
+        ctx2.lineWidth = 2;
+        ctx2.setLineDash([6, 4]);
+        ctx2.beginPath();
+        ctx2.moveTo(x, yScale.top);
+        ctx2.lineTo(x, yScale.bottom);
+        ctx2.stroke();
+        ctx2.fillStyle = '#5cdb95';
+        ctx2.font = 'bold 11px sans-serif';
+        ctx2.fillText('Rail exit', x + 4, yScale.top + 14);
+        ctx2.restore();
+      }
+    }]
+  });
+}
+
+// --- Launch Diagnostic ---
+function diagnoseLaunch(r) {
+  const weight = parseFloat($('weight').value) || 156;
+  const railLenFt = parseFloat($('railLen').value) || 20;
+  const smRailExit = parseFloat($('actualSM').value) || 2.0;
+  const smHighMachVal = parseFloat($('smHighMach').value);
+  const smHighMach = isNaN(smHighMachVal) ? null : smHighMachVal;
+  const wobbleDist = parseFloat($('wobbleDist').value) || 0;
+  const wobbleChar = $('wobbleChar').value;
+  const windMph = r.windMph;
+  const useCSV = $('thrustMode').value === 'csv' && thrustCurve;
+
+  let railExitV, thrustToWeight, thrust, peakThrust, avgThrustOnRail, railExitTime;
+
+  if (useCSV) {
+    const result = integrateRailExit(thrustCurve, weight, railLenFt);
+    railExitV = result.railExitV;
+    railExitTime = result.railExitTime;
+    peakThrust = result.peakThrust;
+    avgThrustOnRail = result.avgThrustOnRail;
+    thrust = avgThrustOnRail;
+    thrustToWeight = peakThrust / weight;
+    renderThrustChart(thrustCurve, railExitTime);
+  } else {
+    thrust = parseFloat($('thrust').value) || 500;
+    const netForce = Math.max(thrust - weight, 0.01);
+    const mass = weight / 32.174;
+    const accel = netForce / mass;
+    railExitV = Math.sqrt(2 * accel * railLenFt);
+    thrustToWeight = thrust / weight;
+    peakThrust = thrust;
+    avgThrustOnRail = thrust;
+    railExitTime = null;
+    $('thrustChartWrap').style.display = 'none';
+  }
+
+  // Wind speed in ft/s
+  const windFps = windMph * 1.467;
+  const windRatio = windFps / Math.max(railExitV, 0.1);
+
+  // SM shift between rail exit and high Mach
+  const smShift = smHighMach !== null ? (smRailExit - smHighMach) : null;
+
+  // Score each factor 0-100 (100 = most likely cause)
+  let scores = { understable: 0, overstable_wcock: 0, low_rail_exit: 0, rod_whip: 0 };
+
+  // --- Rod whip ---
+  // Rod whip causes disturbance AT rail exit (wobbleDist ~0).
+  // If wobble onset is delayed significantly past the rail, rod whip is effectively ruled out.
+  let rw = 0;
+  if (wobbleDist <= 5) {
+    rw = 15;
+    if (railLenFt > 12) rw += 5;
+    if (thrustToWeight < 4) rw += 5;
+  } else if (wobbleDist <= 15) {
+    rw = 8;
+  } else {
+    // wobble 20+ ft past rail — not rod whip
+    rw = 2;
+  }
+  scores.rod_whip = rw;
+
+  // --- Understable ---
+  if (smRailExit < 0.85) scores.understable = 90;
+  else if (smRailExit < 1.0) scores.understable = 60;
+  else if (smRailExit < 1.3) scores.understable = 30;
+  else scores.understable = 5;
+  // Damped wobble = rocket correcting itself, argues against understable
+  if (wobbleChar === 'damped' && smRailExit >= 1.0) scores.understable = Math.max(scores.understable - 10, 2);
+  // Divergent wobble strongly suggests understable
+  if (wobbleChar === 'divergent') scores.understable = Math.max(scores.understable, 70);
+
+  // --- Overstable weathercocking ---
+  // High SM + wind + low-to-moderate exit velocity = weathercocking
+  // Delayed wobble onset (20-100 ft past rail) is consistent — rocket accelerates,
+  // wind moment builds as fins become effective, rocket turns into wind before
+  // forward velocity dominates.
+  let wcock = 0;
+  if (smRailExit > 3.0) wcock += 40;
+  else if (smRailExit > 2.5) wcock += 30;
+  else if (smRailExit > 2.0) wcock += 15;
+  else if (smRailExit > 1.5) wcock += 5;
+  if (windRatio > 0.5) wcock += 30;
+  else if (windRatio > 0.3) wcock += 20;
+  else if (windRatio > 0.15) wcock += 10;
+  else if (windRatio > 0.05) wcock += 5;
+  // Delayed onset is characteristic of weathercocking
+  if (wobbleDist > 10 && wobbleDist <= 100) wcock += 15;
+  // Damped wobble consistent — rocket corrects as it gains speed
+  if (wobbleChar === 'damped') wcock += 10;
+  if (wobbleChar === 'sustained') wcock += 5;
+  scores.overstable_wcock = Math.min(wcock, 95);
+
+  // --- Low rail exit velocity ---
+  let lrev = 0;
+  if (railExitV < 30) lrev = 80;
+  else if (railExitV < 45) lrev = 55;
+  else if (railExitV < 55) lrev = 30;
+  else if (railExitV < 65) lrev = 15;
+  else lrev = 5;
+  if (thrustToWeight < 3) lrev += 15;
+  else if (thrustToWeight < 5) lrev += 5;
+  // If wobble is far past rail, low exit velocity is less likely the direct cause
+  // (rocket had time to accelerate)
+  if (wobbleDist > 30) lrev = Math.max(lrev - 15, 2);
+  scores.low_rail_exit = Math.min(lrev, 95);
+
+  return { railExitV, thrustToWeight, windRatio, windFps, smRailExit, smHighMach, smShift, wobbleDist, wobbleChar, weight, avgThrustOnRail, peakThrust, railExitTime, railLenFt, scores };
+}
+
+function renderDiagnostic(r) {
+  const d = diagnoseLaunch(r);
+
+  // Find primary cause
+  const causes = [
+    { key: 'understable', label: 'Understable (SM too low)', color: '#e94560' },
+    { key: 'overstable_wcock', label: 'Overstable Weathercocking', color: '#f39c12' },
+    { key: 'low_rail_exit', label: 'Insufficient Rail Exit Velocity', color: '#e67e22' },
+    { key: 'rod_whip', label: 'Rod Whip', color: '#9b59b6' },
+  ];
+  causes.sort((a, b) => d.scores[b.key] - d.scores[a.key]);
+  const primary = causes[0];
+  const primaryScore = d.scores[primary.key];
+
+  let verdictClass = 'yellow';
+  if (primaryScore > 60) verdictClass = 'red';
+  else if (primaryScore < 25) verdictClass = 'green';
+
+  let html = '';
+
+  // Computed values
+  html += '<div class="derived" style="margin-bottom:.8rem">';
+  html += '<div>Rail Exit Velocity: <strong>' + d.railExitV.toFixed(1) + ' ft/s</strong></div>';
+  if (d.peakThrust !== d.avgThrustOnRail) {
+    html += '<div>Peak Thrust: <strong>' + d.peakThrust.toFixed(1) + ' lbf</strong></div>';
+    html += '<div>Avg Thrust (rail phase): <strong>' + d.avgThrustOnRail.toFixed(1) + ' lbf</strong></div>';
+  }
+  html += '<div>T:W (peak): <strong>' + d.thrustToWeight.toFixed(1) + ':1</strong></div>';
+  html += '<div>Wind/Exit Velocity Ratio: <strong>' + (d.windRatio * 100).toFixed(0) + '%</strong></div>';
+  if (d.railExitTime !== null) {
+    html += '<div>Rail Exit Time: <strong>' + (d.railExitTime * 1000).toFixed(0) + ' ms</strong></div>';
+  }
+  if (d.smShift !== null) {
+    const dir = d.smShift > 0 ? '\u2193' : '\u2191'; // ↓ or ↑
+    html += '<div>SM Shift (low\u2192high Mach): <strong>' + d.smRailExit.toFixed(2) + ' \u2192 ' + d.smHighMach.toFixed(2) + ' cal (' + dir + Math.abs(d.smShift).toFixed(2) + ')</strong></div>';
+  }
+  html += '</div>';
+
+  // Verdict
+  html += '<p class="diag-verdict ' + verdictClass + '">Most Likely Cause: ' + primary.label + '</p>';
+
+  // Factor meters
+  html += '<div style="margin:.6rem 0">';
+  causes.forEach(c => {
+    const s = d.scores[c.key];
+    const barColor = s > 60 ? '#e94560' : s > 30 ? '#f39c12' : '#5cdb95';
+    html += '<div class="diag-meter">';
+    html += '<div class="diag-meter-label">' + c.label + '</div>';
+    html += '<div class="diag-meter-bar"><div class="diag-meter-fill" style="width:' + s + '%;background:' + barColor + '"></div></div>';
+    html += '<div class="diag-meter-val">' + s + '%</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Detailed analysis per factor
+  html += '<div style="margin-top:.6rem">';
+
+  // Understable
+  if (d.smRailExit < 1.3) {
+    html += '<div class="diag-factor"><h4>Understable</h4><p>SM of ' + d.smRailExit.toFixed(1) + ' cal at rail exit is ' + (d.smRailExit < 0.85 ? 'unstable' : d.smRailExit < 1.0 ? 'marginal' : 'low') + '. ';
+    if (d.wobbleChar === 'divergent') html += 'The divergent wobble pattern strongly suggests insufficient restoring force. ';
+    html += 'Increase fin area or move CG forward.</p></div>';
+  }
+
+  // Overstable weathercocking
+  if (d.scores.overstable_wcock > 15) {
+    html += '<div class="diag-factor"><h4>Overstable Weathercocking</h4><p>';
+    html += 'SM of ' + d.smRailExit.toFixed(2) + ' cal at rail exit with ' + r.windMph + '–' + (r.windMph + 5) + ' mph wind and ' + d.railExitV.toFixed(0) + ' ft/s rail exit velocity (wind/velocity ratio: ' + (d.windRatio * 100).toFixed(0) + '%). ';
+    if (d.wobbleDist > 10) {
+      html += 'Wobble onset ~' + d.wobbleDist + ' ft past the rail is consistent with weathercocking — the rocket exited the rail cleanly, then the crosswind moment built up as fin restoring forces engaged at the high SM, turning the rocket toward the wind. ';
+    }
+    if (d.wobbleChar === 'damped') {
+      html += 'The damped oscillation (self-correcting after 1–3 cycles) confirms the rocket is aerodynamically stable but the SM is high enough that the initial wind correction overshoots, producing a decaying pitch/yaw oscillation as velocity increases and the wind moment becomes a smaller fraction of the aero forces. ';
+    }
+    if (d.windRatio > 0.3) html += 'The wind is a significant fraction of the vehicle\'s speed at rail exit. ';
+    // Check if this is a supersonic vehicle where reducing SM is not viable
+    if (r.mach > 1.0) {
+      html += '</p><p style="margin-top:.4rem"><strong>Important:</strong> This is a Mach ' + r.mach.toFixed(1) + ' vehicle — reducing SM is likely not an option since supersonic flight requires adequate stability margin (2.0+ cal). The primary remedies are to increase rail exit velocity so the rocket accelerates through the vulnerable low-speed phase faster:</p>';
+      html += '<ul style="margin:.3rem 0 .3rem 1.2rem;font-size:.82rem">';
+      html += '<li>Longer launch rail (more distance to accelerate before free flight)</li>';
+      html += '<li>Motor with higher initial thrust / steeper ignition transient</li>';
+      html += '<li>Launch in calmer wind conditions</li>';
+      html += '<li>Consider rail exit velocity target of ' + Math.max(65, Math.ceil(d.windFps * 3)) + '+ ft/s to keep wind/velocity ratio below 30%</li>';
+      html += '</ul>';
+    } else {
+      html += 'Remedies: reduce SM (smaller fins or aft CG shift), increase rail exit velocity (longer rail or higher initial thrust), or launch in calmer conditions.';
+    }
+    html += '</div>';
+  }
+
+  // Low rail exit velocity
+  html += '<div class="diag-factor"><h4>Rail Exit Velocity Assessment</h4><p>';
+  if (d.railExitV < 55) {
+    html += d.railExitV.toFixed(0) + ' ft/s is below the commonly recommended minimum of 52–60 ft/s. T:W of ' + d.thrustToWeight.toFixed(1) + ':1 ';
+    if (d.thrustToWeight < 5) html += 'is on the low side (5:1+ preferred). ';
+    html += 'Consider a longer rail (' + Math.ceil(railLenNeeded(d, 60)) + ' ft for 60 ft/s) or a motor with higher initial thrust. ';
+    if (d.wobbleDist > 30) html += 'However, the wobble onset ' + d.wobbleDist + ' ft past the rail suggests the rocket had already accelerated significantly — low rail exit velocity alone is less likely to be the primary cause at that distance.';
+  } else {
+    html += d.railExitV.toFixed(0) + ' ft/s is above the recommended minimum. Rail exit velocity is likely adequate.';
+  }
+  html += '</p></div>';
+
+  // Rod whip
+  html += '<div class="diag-factor"><h4>Rod Whip</h4><p>';
+  if (d.wobbleDist > 15) {
+    html += 'Wobble onset ~' + d.wobbleDist + ' ft past the rail effectively rules out rod whip. Rod whip imparts a rotational disturbance at the moment of rail departure — it would manifest as an immediate tip-off at rail exit, not a delayed oscillation. ';
+    html += 'The ' + d.wobbleDist + ' ft delay indicates the rocket left the rail cleanly and the wobble has an aerodynamic cause.';
+  } else if (d.wobbleDist <= 5) {
+    html += 'Wobble near rail exit is consistent with rod whip, though it remains an uncommon primary cause. With a ' + d.railLenFt.toFixed(0) + ' ft rail, ensure the rail is rigid (1515 or stiffer) and well-supported. A launch rod (vs. rail) is more susceptible.';
+  } else {
+    html += 'Wobble onset ' + d.wobbleDist + ' ft past the rail makes rod whip unlikely but not impossible. Rod whip effects are generally immediate at rail departure.';
+  }
+  html += '</p></div>';
+
+  // SM shift info
+  if (d.smShift !== null) {
+    const absDelta = Math.abs(d.smShift);
+    html += '<div class="diag-factor"><h4>SM Shift with Mach</h4><p>';
+    if (d.smShift > 0) {
+      // SM decreased with speed
+      html += 'SM decreases from ' + d.smRailExit.toFixed(2) + ' cal at low Mach to ' + d.smHighMach.toFixed(2) + ' cal at high Mach (\u2193' + absDelta.toFixed(2) + ' cal). ';
+      html += 'CP is moving forward relative to CG as speed increases (common with propellant burn shifting CG aft and/or aero effects). ';
+      if (d.smHighMach < 1.0) html += 'The high-Mach SM is in the marginal/unstable range — the rocket may lose stability at speed. This is a serious concern for a Mach ' + r.mach.toFixed(1) + ' flight. ';
+      else if (d.smHighMach < 1.5) html += 'The high-Mach SM is getting low. Verify supersonic CP location carefully. ';
+      else html += 'The high-Mach SM remains adequate. ';
+    } else {
+      // SM increased with speed
+      html += 'SM increases from ' + d.smRailExit.toFixed(2) + ' cal at low Mach to ' + d.smHighMach.toFixed(2) + ' cal at high Mach (\u2191' + absDelta.toFixed(2) + ' cal). ';
+      html += 'This means the rocket becomes more stable as it accelerates — CP is moving aft relative to CG, or CG is moving forward as propellant burns (or both). ';
+      if (d.smHighMach > 3.0) html += 'The high-Mach SM of ' + d.smHighMach.toFixed(2) + ' cal is quite high — the rocket will be increasingly overstable at speed, which can amplify weathercocking if any crosswind is present. ';
+      else html += 'The high-Mach SM of ' + d.smHighMach.toFixed(2) + ' cal is reasonable. ';
+    }
+    if (absDelta > 0.5) html += 'A shift of ' + absDelta.toFixed(2) + ' cal is significant — verify SM at multiple flight points in OpenRocket.';
+    html += '</p></div>';
+  }
+
+  html += '</div>';
+
+  $('diagResults').innerHTML = html;
+}
+
+function railLenNeeded(d, targetV) {
+  // v = sqrt(2*a*L) => L = v^2 / (2*a)
+  const netForce = Math.max(d.avgThrustOnRail - d.weight, 0.01);
+  const mass = d.weight / 32.174;
+  const accel = netForce / mass;
+  return (targetV * targetV) / (2 * accel);
+}
+
+// --- Update Loop ---
+function update() {
+  const dia = parseFloat($('diameter').value) || 3;
+  const len = parseFloat($('length').value) || 48;
+  const mach = parseFloat($('mach').value);
+  const windMph = parseInt($('wind').value);
+  $('machVal').textContent = 'Mach ' + mach.toFixed(2);
+
+  const r = analyze(dia, len, mach, windMph);
+  renderDerived(r);
+  renderResults(r);
+  renderDiagnostic(r);
+  renderZoneChart(r);
+  renderMachChart(r);
+}
+
+['diameter','length','mach','weight','thrust','railLen','actualSM','smHighMach','wobbleDist'].forEach(id =>
+  $(id).addEventListener('input', update)
+);
+$('wobbleChar').addEventListener('change', update);
+$('wind').addEventListener('change', update);
+
+$('thrustMode').addEventListener('change', function() {
+  const csv = this.value === 'csv';
+  $('thrustManualWrap').style.display = csv ? 'none' : 'block';
+  $('thrustCsvWrap').style.display = csv ? 'block' : 'none';
+  if (!csv) { thrustCurve = null; $('thrustChartWrap').style.display = 'none'; }
+  update();
+});
+
+$('thrustCsv').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const parsed = parseThrustCsv(e.target.result);
+    if (parsed) {
+      thrustCurve = parsed;
+      const burnDur = parsed[parsed.length-1].t - parsed[0].t;
+      const peakF = Math.max(...parsed.map(p => p.f));
+      $('csvStatus').innerHTML = '<span style="color:#5cdb95">Burn detected: ' + parsed.length + ' samples, ~' + burnDur.toFixed(1) + ' s duration, peak thrust ' + peakF.toFixed(0) + ' lbf</span>';
+      update();
+    } else {
+      thrustCurve = null;
+      $('csvStatus').innerHTML = '<span style="color:#e94560">Could not parse CSV. Ensure rows have a time column and at least 1 (or 4) load cell columns.</span>';
+    }
+  };
+  reader.readAsText(file);
+});
+
+update();
+</script>
+</body>
+</html>
